@@ -88,8 +88,10 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch Data
+  // 2. Fetch Data (🌟 인증이 완료된 후에만 데이터를 가져오도록 원복)
   useEffect(() => {
+    // 🚨 중요: user(인증) 객체가 없으면 파이어베이스에서 권한 없음(Missing Permissions) 에러가 납니다.
+    // 반드시 익명 로그인이 완료된 후에 데이터를 불러오도록 안전망을 다시 추가했습니다.
     if (!user || !db) return;
 
     const candidatesRef = collection(db, 'artifacts', appId, 'public', 'data', 'candidates');
@@ -116,7 +118,7 @@ export default function App() {
       unsubVotes();
       unsubStatus();
     };
-  }, [user]);
+  }, [user, db]); // user가 로그인 상태로 변할 때만 이 로직이 실행됩니다.
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -146,14 +148,14 @@ export default function App() {
     e.preventDefault();
     if (!newCandidateName.trim()) return;
 
-    if (!db) {
-      showToast('파이어베이스가 연결되지 않았습니다. API 키 설정을 확인해주세요!', 'error');
+    if (!user || !db) {
+      alert('파이어베이스 연결 혹은 사용자 인증이 완료되지 않았습니다.');
       return;
     }
 
     const currentCandidates = candidates.filter(c => c.type === electionType);
     if (currentCandidates.length >= 5) {
-      showToast('후보자는 최대 5명까지만 등록할 수 있습니다.', 'error');
+      alert('후보자는 최대 5명까지만 등록할 수 있습니다.');
       return;
     }
 
@@ -166,28 +168,23 @@ export default function App() {
       setNewCandidateName('');
       showToast('후보자가 등록되었습니다.');
     } catch (error) {
-      showToast('등록 중 오류가 발생했습니다.', 'error');
+      console.error(error);
+      alert('🚨 후보 등록 실패!\n\n에러상세: ' + error.message);
     }
   };
 
   const handleDeleteCandidate = async (id) => {
-    if (!db) {
-      showToast('파이어베이스가 연결되지 않았습니다.', 'error');
-      return;
-    }
+    if (!user || !db) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'candidates', id));
       showToast('후보자가 삭제되었습니다.');
     } catch (error) {
-      showToast('삭제 중 오류가 발생했습니다.', 'error');
+      alert('🚨 삭제 실패!\n\n에러상세: ' + error.message);
     }
   };
 
   const toggleVotingStatus = async () => {
-    if (!db) {
-      showToast('파이어베이스가 연결되지 않았습니다.', 'error');
-      return;
-    }
+    if (!user || !db) return;
     try {
       const statusRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'votingStatus');
       const isCurrentlyClosed = votingStatus[electionType];
@@ -196,30 +193,30 @@ export default function App() {
       }, { merge: true });
       showToast(!isCurrentlyClosed ? '투표가 마감되었습니다.' : '투표가 다시 열렸습니다.');
     } catch (error) {
-      showToast('상태 변경 중 오류가 발생했습니다.', 'error');
+      alert('🚨 마감 상태 변경 실패!\n\n에러상세: ' + error.message);
     }
   };
 
   const handleVote = async (e) => {
     e.preventDefault();
     if (votingStatus[electionType]) {
-      showToast('현재 투표가 마감되었습니다.', 'error');
+      alert('현재 투표가 마감되었습니다.');
       return;
     }
 
     if (!studentId.trim() || !selectedCandidate || !reason.trim()) {
-      showToast('학번, 후보, 투표 이유를 모두 입력해주세요.', 'error');
+      alert('학번, 후보, 투표 이유를 모두 입력해주세요.');
       return;
     }
 
     const hasVoted = votes.some(v => v.studentId === studentId.trim() && v.type === electionType);
     if (hasVoted) {
-      showToast(`이미 ${electionType === 'president' ? '반장' : '부반장'} 선거에 투표했습니다!`, 'error');
+      alert(`이미 ${electionType === 'president' ? '반장' : '부반장'} 선거에 투표했습니다!`);
       return;
     }
 
-    if (!db) {
-      showToast('데이터베이스 연결 오류', 'error');
+    if (!user || !db) {
+      alert('사용자 인증이 완료되지 않았습니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
@@ -237,7 +234,7 @@ export default function App() {
       showToast('투표가 완료되었습니다! 감사합니다 🎉');
       setActiveTab('results');
     } catch (error) {
-      showToast('투표 중 오류가 발생했습니다.', 'error');
+      alert('🚨 투표 실패!\n\n에러상세: ' + error.message);
     }
   };
 
@@ -447,7 +444,7 @@ export default function App() {
                    <Clock className="w-8 h-8 text-blue-400" />
                  </div>
                  <h3 className="text-xl font-bold text-slate-700 mb-2">투표가 진행 중입니다</h3>
-                 <p className="text-slate-500">선생님이 투표를 마마감하면 결과를 확인할 수 있습니다.<br/>조금만 기다려주세요!</p>
+                 <p className="text-slate-500">선생님이 투표를 마감하면 결과를 확인할 수 있습니다.<br/>조금만 기다려주세요!</p>
                </div>
             ) : results.length === 0 ? (
                <div className="text-center py-10 bg-white rounded-2xl border border-slate-100 text-slate-400 shadow-sm">
